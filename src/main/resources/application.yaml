@@ -1,0 +1,7 @@
+server:
+ port: 9096
+spring:
+  application:
+    name: XSSFilter
+
+skip_words: not good words,bad words,XXXX,<script,
