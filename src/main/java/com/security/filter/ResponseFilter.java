@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 import javax.servlet.*;
 import javax.servlet.http.HttpServletRequest;
@@ -20,22 +21,25 @@ import java.net.URLDecoder;
 import java.util.List;
 
 @Component
-public class ResponseFilter implements Filter {
+public class ResponseFilter extends OncePerRequestFilter {
 
     ObjectMapper objectMapper = new ObjectMapper();
-
 
     @Value("#{'${skip_words}'.split(',')}")
     private List<String> skipWords;
 
-    @Autowired
-    private ExceptionController exceptionController;
+    public String convertObjectToJson(Object object) throws JsonProcessingException {
+        if (object == null) {
+            return null;
+        }
+        ObjectMapper mapper = new ObjectMapper();
+        return mapper.writeValueAsString(object);
+    }
 
     @Override
-    public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain) throws IOException, ServletException {
-        HttpServletResponse httpServletResponse = (HttpServletResponse) servletResponse;
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws IOException {
         try {
-            RequestWrapper requestWrapper = new RequestWrapper((HttpServletRequest) servletRequest, skipWords);
+            RequestWrapper requestWrapper = new RequestWrapper( request, skipWords);
 
             String uri = requestWrapper.getRequestURI();
             System.out.println("getRequestURI : " + uri);
@@ -49,8 +53,8 @@ public class ResponseFilter implements Filter {
                 errorResponse.setStatus(HttpStatus.FORBIDDEN.value());
                 errorResponse.setMessage("XSS attack error");
                 System.out.println("convertObjectToJson(errorResponse) : " + convertObjectToJson(errorResponse));
-                servletResponse.getWriter().write(convertObjectToJson(errorResponse));
-                httpServletResponse.setStatus(HttpStatus.FORBIDDEN.value());
+                response.getWriter().write(convertObjectToJson(errorResponse));
+                response.setStatus(HttpStatus.FORBIDDEN.value());
                 return;
             }
 
@@ -60,40 +64,30 @@ public class ResponseFilter implements Filter {
                 // XSS:  Post Body data validation
                 if (XSSValidationUtils.isValidURLPattern(requestWrapper.getBody(), skipWords)) {
 
-                    filterChain.doFilter(requestWrapper, servletResponse);
+                    filterChain.doFilter(requestWrapper, response);
                 } else {
                     ErrorResponse errorResponse = new ErrorResponse();
 
                     errorResponse.setStatus(HttpStatus.FORBIDDEN.value());
                     errorResponse.setMessage("XSS attack error");
-                    servletResponse.getWriter().write(convertObjectToJson(errorResponse));
-                    httpServletResponse.setStatus(HttpStatus.FORBIDDEN.value());
+                    response.getWriter().write(convertObjectToJson(errorResponse));
+                    response.setStatus(HttpStatus.FORBIDDEN.value());
                     return;
 
                 }
             } else {
-                filterChain.doFilter(requestWrapper, servletResponse);
+                filterChain.doFilter(requestWrapper, response);
             }
         } catch (XSSServletException ex) {
-            servletResponse.getWriter().write(ex.getMessage());
-            httpServletResponse.setStatus(HttpStatus.FORBIDDEN.value());
+            response.getWriter().write(ex.getMessage());
+            response.setStatus(HttpStatus.FORBIDDEN.value());
         }  catch (Exception ex) {
-            servletResponse.getWriter().write(ex.getMessage());
-            httpServletResponse.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+            response.getWriter().write(ex.getMessage());
+            response.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
         } finally {
             System.out.println("clean up");
         }
     }
-
-
-    public String convertObjectToJson(Object object) throws JsonProcessingException {
-        if (object == null) {
-            return null;
-        }
-        ObjectMapper mapper = new ObjectMapper();
-        return mapper.writeValueAsString(object);
-    }
-
 }
 
 
